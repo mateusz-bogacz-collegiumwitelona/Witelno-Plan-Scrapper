@@ -1,55 +1,81 @@
-from typing import List
-
-from bs4 import BeautifulSoup
-from dto.plan_response import PlanResponse
+from typing import List, Optional
 import urllib.parse as urlparse
+from bs4 import BeautifulSoup
+from bs4.element import Tag
+from dto.plan_response import PlanResponse
+
+
+def _parse_lesson_chunk(cells: List[Tag], group_name: str, day: str, hour: str) -> Optional[PlanResponse]:
+    subject = cells[0].get_text(strip=True)
+    if subject in ['-', '']:
+        return None
+
+    teacher = cells[1].get_text(strip=True)
+    room = cells[2].get_text(strip=True)
+
+    return PlanResponse(
+        day=day,
+        hour=hour,
+        group=group_name,
+        subject=subject,
+        teacher=teacher,
+        classroom=room
+    )
+
+
+def _extract_major_from_url(url: str) -> Optional[str]:
+    if 'checkSpecjalnoscStac.php' not in url:
+        return None
+
+    parsed_url = urlparse.urlparse(url)
+    params = urlparse.parse_qs(parsed_url.query)
+
+    return params.get('specjalnosc', [None])[0]
+
 
 def parse_plan(html_content: str) -> List[PlanResponse]:
     soup = BeautifulSoup(html_content, "html.parser")
     plan_table = soup.find("table", class_="TabPlan")
 
     if not plan_table:
-        return
+        return []
 
     result = []
     current_day = None
     current_groups = []
 
     for row in plan_table.find_all("tr"):
-        cell = row.find_all("td")
-        if not cell:
+        cells = row.find_all("td")
+        if not cells:
             continue
 
-        day_cell = row.find_all("td", class_="nazwaDnia")
+        day_cell = row.find("td", class_="nazwaDnia")
         if day_cell:
-            current_day = day_cell[0].get_text(strip=True)
+            current_day = day_cell.get_text(strip=True)
             continue
 
         if row.find("td", class_="nazwaSpecjalnosci"):
-            current_groups = [td.get_text(strip=True) for td in cell if td.has_attr("class") and "nazwaSpecjalnosci" in td["class"]]
+            current_groups = [
+                td.get_text(strip=True) for td in cells
+                if td.has_attr("class") and "nazwaSpecjalnosci" in td["class"]
+            ]
             continue
 
-        houre_cell = row.find("td", class_="godzina")
-        if houre_cell:
-            houre = houre_cell.get_text(strip=True)
-            data_class = cell[1:]
+        hour_cell = row.find("td", class_="godzina")
+        if hour_cell and current_groups:
+            hour = hour_cell.get_text(strip=True)
+            data_cells = cells[1:]
 
-            if current_groups and len(data_class) == len(current_groups) * 3:
-                for i in range(len(current_groups)):
-                    subject = data_class[i * 3].get_text(strip=True)
-                    teacher = data_class[i * 3 + 1].get_text(strip=True)
-                    room = data_class[i * 3 + 2].get_text(strip=True)
+            if len(data_cells) == len(current_groups) * 3:
+                for i, group in enumerate(current_groups):
+                    chunk = data_cells[i * 3: (i + 1) * 3]
+                    lesson = _parse_lesson_chunk(chunk, group, current_day, hour)
 
-                    if subject not in ['-', '']:
-                        result.append(PlanResponse(
-                            day=current_day,
-                            hour=houre,
-                            group=current_groups[i],
-                            subject=subject,
-                            teacher=teacher,
-                            classroom=room
-                        ))
+                    if lesson:
+                        result.append(lesson)
+
     return result
+
 
 def parse_major_list(html_text: str) -> list:
     soup = BeautifulSoup(html_text, "html.parser")
@@ -61,23 +87,17 @@ def parse_major_list(html_text: str) -> list:
 
     for li in accordion.find_all("li"):
         header_a = li.find("a")
-        if not header_a:
+        div = li.find("div")
+
+        if not header_a or not div:
             continue
 
         name = header_a.get_text(strip=True)
 
-        div = li.find("div")
-        if not div:
-            continue
-
         for a in div.find_all('a'):
-            if 'checkSpecjalnoscStac.php' in a.get('href', ''):
-                parsed_url = urlparse.urlparse(a['href'])
-                params = urlparse.parse_qs(parsed_url.query)
-
-                if 'specjalnosc' in params:
-                    major = params['specjalnosc'][0]
-                    plans.append({"name": name, "major": major})
+            major = _extract_major_from_url(a.get('href', ''))
+            if major:
+                plans.append({"name": name, "major": major})
                 break
 
     return plans

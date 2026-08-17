@@ -1,40 +1,43 @@
-import httpx, asyncio
+import httpx
+import asyncio
 from utils.parser import parse_plan, parse_major_list
 
+BASE_URL = "http://www.plan.pwsz.legnica.edu.pl"
+
 FACULTIES_URLS = [
-    "http://www.plan.pwsz.legnica.edu.pl/schedule_view.php?site=show_kierunek.php&id=1",
-    "http://www.plan.pwsz.legnica.edu.pl/schedule_view.php?site=show_kierunek.php&id=2",
-    "http://www.plan.pwsz.legnica.edu.pl/schedule_view.php?site=show_kierunek.php&id=7",
-    "http://www.plan.pwsz.legnica.edu.pl/schedule_view.php?site=show_kierunek.php&id=10",
-    "http://www.plan.pwsz.legnica.edu.pl/schedule_view.php?site=show_kierunek.php&id=11",
-    "http://www.plan.pwsz.legnica.edu.pl/schedule_view.php?site=show_kierunek.php&id=12"
+    f"{BASE_URL}/schedule_view.php?site=show_kierunek.php&id={i}"
+    for i in [1, 2, 7, 10, 11, 12]
 ]
 
-def get_plan_from_url(major: str) -> list:
-    url = f"http://www.plan.pwsz.legnica.edu.pl/checkSpecjalnoscStac.php?specjalnosc={major}"
+async def get_plan_from_url_async(major: str) -> list:
+    url = f"{BASE_URL}/checkSpecjalnoscStac.php?specjalnosc={major}"
 
-    with httpx.Client() as client:
-        response = client.get(url)
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
         response.raise_for_status()
         response.encoding = 'iso-8859-2'
         html_text = response.text
 
     return parse_plan(html_text)
 
-def get_plan(major: str) -> dict:
-    data = get_plan_from_url(major)
+async def get_plan(major: str) -> dict:
+    data = await get_plan_from_url_async(major)
     return {"data": data}
 
-async def fetch_facultie(client, url):
-    response = await client.get(url)
-    response.raise_for_status()
-    response.encoding = 'iso-8859-2'
-    return parse_major_list(response.text)
+async def fetch_faculty(client: httpx.AsyncClient, url: str) -> list:
+    try:
+        response = await client.get(url)
+        response.raise_for_status()
+        response.encoding = 'iso-8859-2'
+        return parse_major_list(response.text)
+    except httpx.HTTPError as e:
+        print(f"Error retrieving the department {url}: {e}")
+        return []
 
 async def fetch_all_plans_async() -> list:
     plans = []
     async with httpx.AsyncClient() as client:
-        tasks = [fetch_facultie(client, url) for url in FACULTIES_URLS]
+        tasks = [fetch_faculty(client, url) for url in FACULTIES_URLS]
         results = await asyncio.gather(*tasks)
 
         for result in results:
