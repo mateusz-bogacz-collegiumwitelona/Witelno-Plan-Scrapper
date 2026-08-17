@@ -2,6 +2,7 @@ from typing import List
 
 from bs4 import BeautifulSoup
 from dto.plan_response import PlanResponse
+import urllib.parse as urlparse
 
 def parse_plan(html_content: str) -> List[PlanResponse]:
     soup = BeautifulSoup(html_content, "html.parser")
@@ -50,3 +51,33 @@ def parse_plan(html_content: str) -> List[PlanResponse]:
                         ))
     return result
 
+def parse_major_list(html_text: str) -> list:
+    soup = BeautifulSoup(html_text, "html.parser")
+    accordion = soup.find("ul", class_="accordion")
+
+    plans = []
+    if not accordion:
+        return plans
+
+    for li in accordion.find_all("li"):
+        header_a = li.find("a")
+        if not header_a:
+            continue
+
+        name = header_a.get_text(strip=True)
+
+        div = li.find("div")
+        if not div:
+            continue
+
+        for a in div.find_all('a'):
+            if 'checkSpecjalnoscStac.php' in a.get('href', ''):
+                parsed_url = urlparse.urlparse(a['href'])
+                params = urlparse.parse_qs(parsed_url.query)
+
+                if 'specjalnosc' in params:
+                    major = params['specjalnosc'][0]
+                    plans.append({"name": name, "major": major})
+                break
+
+    return plans
