@@ -34,7 +34,7 @@ async def get_plan_async(major: str) -> dict:
         if cached_data:
             return {
                 "status": "success",
-                "source": "cache",
+                "source": "redis_cache",
                 "data": cached_data
             }
 
